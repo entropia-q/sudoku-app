@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数独</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --line: #cbd2d9;
+    --line-strong: #334155;
+    --text: #1f2937;
+    --fixed: #1f2937;
+    --user: #2563eb;
+    --accent: #2563eb;
+    --error-bg: #fee2e2;
+    --error-text: #b91c1c;
+    --ok-bg: #dcfce7;
+    --ok-text: #15803d;
+    --hint-bg: #e0e7ff;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN",
+                 "Yu Gothic", Meiryo, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .subtitle {
+    margin: 0 0 20px;
+    font-size: 0.85rem;
+    color: #6b7280;
+  }
+
+  .board {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    background: var(--panel);
+    border: 3px solid var(--line-strong);
+    border-radius: 6px;
+    overflow: hidden;
+    width: min(92vw, 460px);
+    aspect-ratio: 1 / 1;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  /* メモモード時は盤面全体を淡い青系に */
+  .board.memo { background: #dbeafe; border-color: #3b82f6; }
+  .board.memo .cell { background: #eff6ff; }
+  .board.memo .cell.fixed { background: #dbeafe; }
+  .board.memo .cell.wrong { background: var(--error-bg); }
+
+  /* ゲームオーバー時は操作不可 */
+  .board.over { opacity: 0.55; pointer-events: none; }
+
+  /* クリア後は入力を締め切り、枠を緑に */
+  .board.solved { pointer-events: none; border-color: var(--ok-text); }
+
+  .cell {
+    position: relative;
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  /* メモ（候補数字）レイヤー */
+  .notes {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    pointer-events: none;
+  }
+  .notes span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(0.5rem, 2vw, 0.72rem);
+    font-weight: 600;
+    line-height: 1;
+    color: #64748b;
+  }
+  .notes span.bad {
+    color: #dc2626;
+    background: rgba(220, 38, 38, 0.16);
+    border-radius: 3px;
+    font-weight: 800;
+  }
+  /* 大きい数字が入っているセルではメモを隠す */
+  .cell.has-value .notes { display: none; }
+
+  /* 3x3 ブロックの太線 */
+  .cell[data-col="2"], .cell[data-col="5"] { border-right: 2px solid var(--line-strong); }
+  .cell[data-row="2"], .cell[data-row="5"] { border-bottom: 2px solid var(--line-strong); }
+
+  .cell input {
+    width: 100%;
+    height: 100%;
+    border: none;
+    outline: none;
+    text-align: center;
+    font-size: clamp(1rem, 5vw, 1.5rem);
+    font-weight: 600;
+    background: transparent;
+    color: var(--user);
+    font-family: inherit;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
+  .cell input::-webkit-outer-spin-button,
+  .cell input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+  .cell input:focus { background: var(--hint-bg); }
+
+  .cell.fixed {
+    background: #f8fafc;
+  }
+  .cell.fixed input {
+    color: var(--fixed);
+    font-weight: 700;
+  }
+
+  .cell.wrong input { color: var(--error-text); }
+  .cell.wrong { background: var(--error-bg); }
+
+  /* ゲーム失敗時に自動表示された正解マス */
+  .cell.revealed input { color: #64748b; font-style: italic; font-weight: 600; }
+
+  .toolbar {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 0 0 16px;
+  }
+
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #475569;
+  }
+
+  .field select {
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .timer {
+    font-variant-numeric: tabular-nums;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text);
+    min-width: 3ch;
+    text-align: right;
+  }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  button {
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: transform 0.05s ease, background 0.15s ease;
+  }
+  button:active { transform: translateY(1px); }
+
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+
+  .btn-secondary { background: #fff; color: var(--text); border-color: var(--line); }
+  .btn-secondary:hover { background: #f1f5f9; }
+
+  #memo[aria-pressed="true"] {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  /* メモモード中の見た目のヒント */
+  .board.memo .cell:not(.fixed):not(.has-value) input:focus { background: #fef9c3; }
+
+  /* 現在の入力モード表示 */
+  .mode {
+    font-size: 0.9rem;
+    font-weight: 700;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #475569;
+    white-space: nowrap;
+  }
+  .mode.memo { background: var(--accent); color: #fff; }
+
+  /* ミス回数表示 */
+  #mistakes.warn { color: var(--error-text); }
+  #mistakes.over { color: var(--error-text); font-weight: 800; }
+
+  /* 残り数字カウント */
+  .counts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 18px;
+    width: min(92vw, 460px);
+  }
+  .count {
+    flex: 1 1 0;
+    min-width: 34px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 5px 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+  .count .n { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+  .count .r { font-size: 0.8rem; color: #64748b; }
+  .count.done { opacity: 0.45; }
+  .count.done .r { color: var(--ok-text); font-weight: 700; }
+
+  /* 難易度別ランキング */
+  .rankings {
+    width: min(92vw, 460px);
+    margin-top: 26px;
+  }
+  .rankings h2 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0 0 10px;
+    text-align: center;
+  }
+  .rank-cols {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .rank-col {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 8px;
+  }
+  .rank-col h3 {
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin: 0 0 8px;
+    text-align: center;
+    color: #475569;
+  }
+  .rank-col ol {
+    margin: 0;
+    padding-left: 1.5em;
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+  .rank-col li { margin: 3px 0; }
+  .rank-col li.new { font-weight: 800; color: var(--ok-text); }
+  .rank-col .empty {
+    margin: 4px 0;
+    font-size: 0.8rem;
+    color: #94a3b8;
+    text-align: center;
+  }
+  .rank-actions { text-align: center; margin-top: 12px; }
+  .rank-actions button { padding: 8px 16px; font-size: 0.85rem; }
+
+  .message {
+    margin-top: 18px;
+    min-height: 1.4em;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 8px;
+    text-align: center;
+  }
+  .message.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .message.err { background: var(--error-bg); color: var(--error-text); }
+</style>
+</head>
+<body>
+  <h1>数独</h1>
+  <p class="subtitle">空いているマスに 1〜9 を入れて盤面を完成させましょう</p>
+
+  <div class="toolbar">
+    <label class="field" for="difficulty">
+      難易度
+      <select id="difficulty">
+        <option value="easy">かんたん</option>
+        <option value="normal" selected>ふつう</option>
+        <option value="hard">むずかしい</option>
+      </select>
+    </label>
+    <div class="field">
+      経過時間
+      <span id="timer" class="timer" role="timer" aria-live="off">0 秒</span>
+    </div>
+    <span id="mistakes" class="field" aria-live="polite">ミス 0/3</span>
+    <span id="mode" class="mode" aria-live="polite">入力モード: 通常</span>
+  </div>
+
+  <p class="subtitle" style="margin: -8px 0 16px;">
+    スペースキーで「通常入力」と「メモ入力」を切り替えられます
+  </p>
+
+  <div id="board" class="board" aria-label="数独の盤面"></div>
+
+  <div id="counts" class="counts" aria-label="残り数字カウント"></div>
+
+  <div class="controls">
+    <button id="check" class="btn-primary" type="button">答え合わせ</button>
+    <button id="memo" class="btn-secondary" type="button" aria-pressed="false">メモ: OFF</button>
+    <button id="reset" class="btn-secondary" type="button">リセット</button>
+    <button id="new" class="btn-secondary" type="button">新しいパズル</button>
+  </div>
+
+  <div id="message" class="message" role="status" aria-live="polite"></div>
+
+  <section class="rankings" aria-label="難易度別ランキング">
+    <h2>ランキング（クリアタイム上位5）</h2>
+    <div id="rankings"></div>
+    <div class="rank-actions">
+      <button id="rank-clear" class="btn-secondary" type="button">ランキングを消去</button>
+    </div>
+  </section>
+
+<script>
+(() => {
+  "use strict";
+
+  const SIZE = 9;
+  const BOX = 3;
+  const boardEl = document.getElementById("board");
+  const messageEl = document.getElementById("message");
+  const difficultyEl = document.getElementById("difficulty");
+  const timerEl = document.getElementById("timer");
+  const countsEl = document.getElementById("counts");
+  const memoBtn = document.getElementById("memo");
+  const modeEl = document.getElementById("mode");
+  const mistakesEl = document.getElementById("mistakes");
+  const rankingsEl = document.getElementById("rankings");
+  const rankClearBtn = document.getElementById("rank-clear");
+
+  // 難易度ごとに抜くマスの数（多いほど難しい）
+  const DIFFICULTY_HOLES = {
+    easy: 38,
+    normal: 48,
+    hard: 56,
+  };
+
+  const DIFF_KEYS = ["easy", "normal", "hard"];
+  const DIFF_LABELS = { easy: "かんたん", normal: "ふつう", hard: "むずかしい" };
+
+  const RANK_KEY = "sudoku-rankings";  // localStorage キー
+  const RANK_MAX = 5;                   // 各難易度で保持する上位件数
+
+  let solution = [];   // 完成盤面 (9x9)
+  let puzzle = [];      // 初期盤面 (0 = 空きマス)
+  let inputs = [];      // 各セルの <input> 要素 (9x9)
+  let values = [];      // 現在の確定値 (9x9, 0 = 空き。固定マスも含む)
+  let notes = [];       // 各セルのメモ候補 (9x9 の Set<number>)
+  let memoMode = false; // true ならメモ入力モード
+
+  const MAX_MISTAKES = 3;
+  let mistakes = 0;      // 誤入力の回数
+  let gameOver = false;  // ミス上限に達したか
+  let solved = false;    // 自動判定でクリア済みか
+
+  /* ---------- タイマー ---------- */
+
+  let timerId = null;     // setInterval の ID
+  let startedAt = 0;      // 計測開始時刻 (ms)
+  let elapsedSec = 0;     // 経過秒数
+
+  const renderTimer = () => {
+    timerEl.textContent = `${elapsedSec} 秒`;
+  };
+
+  const stopTimer = () => {
+    if (timerId !== null) {
+      clearInterval(timerId);
+      timerId = null;
+    }
+  };
+
+  const startTimer = () => {
+    stopTimer();
+    startedAt = Date.now();
+    elapsedSec = 0;
+    renderTimer();
+    timerId = setInterval(() => {
+      elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+      renderTimer();
+    }, 250);
+  };
+
+  /* ---------- 難易度別ランキング (localStorage) ---------- */
+
+  let newRecord = null; // 直近で追加された記録 { diff, index } (NEW 表示用)
+
+  const loadRankings = () => {
+    let data = {};
+    try {
+      data = JSON.parse(localStorage.getItem(RANK_KEY)) || {};
+    } catch (e) {
+      data = {};
+    }
+    const out = {};
+    for (const key of DIFF_KEYS) {
+      out[key] = Array.isArray(data[key])
+        ? data[key].filter((t) => Number.isFinite(t)).sort((a, b) => a - b)
+        : [];
+    }
+    return out;
+  };
+
+  const saveRankings = (data) => {
+    try {
+      localStorage.setItem(RANK_KEY, JSON.stringify(data));
+    } catch (e) {
+      /* localStorage が使えない環境では黙って無視 */
+    }
+  };
+
+  const renderRankings = () => {
+    const data = loadRankings();
+    const cols = document.createElement("div");
+    cols.className = "rank-cols";
+
+    for (const key of DIFF_KEYS) {
+      const col = document.createElement("div");
+      col.className = "rank-col";
+      const times = data[key];
+      let html = `<h3>${DIFF_LABELS[key]}</h3>`;
+      if (times.length === 0) {
+        html += `<p class="empty">記録なし</p>`;
+      } else {
+        html += "<ol>";
+        times.forEach((t, i) => {
+          const isNew = newRecord && newRecord.diff === key && newRecord.index === i;
+          html += `<li class="${isNew ? "new" : ""}">${t} 秒${isNew ? " ← NEW" : ""}</li>`;
+        });
+        html += "</ol>";
+      }
+      col.innerHTML = html;
+      cols.appendChild(col);
+    }
+
+    rankingsEl.innerHTML = "";
+    rankingsEl.appendChild(cols);
+  };
+
+  // クリアタイムを現在の難易度のランキングに登録
+  const recordTime = (sec) => {
+    const diff = difficultyEl.value;
+    const data = loadRankings();
+    const list = data[diff];
+    list.push(sec);
+    list.sort((a, b) => a - b);
+    const index = list.indexOf(sec);
+    data[diff] = list.slice(0, RANK_MAX);
+    saveRankings(data);
+    newRecord = index < RANK_MAX ? { diff, index } : null;
+    renderRankings();
+  };
+
+  const clearRankings = () => {
+    if (!window.confirm("保存されているランキングをすべて消去します。よろしいですか？")) return;
+    try {
+      localStorage.removeItem(RANK_KEY);
+    } catch (e) {
+      /* 無視 */
+    }
+    newRecord = null;
+    renderRankings();
+  };
+
+  /* ---------- 数独の生成 ---------- */
+
+  const shuffle = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+
+  const canPlace = (grid, row, col, num) => {
+    for (let i = 0; i < SIZE; i++) {
+      if (grid[row][i] === num) return false;
+      if (grid[i][col] === num) return false;
+    }
+    const r0 = row - (row % BOX);
+    const c0 = col - (col % BOX);
+    for (let r = 0; r < BOX; r++) {
+      for (let c = 0; c < BOX; c++) {
+        if (grid[r0 + r][c0 + c] === num) return false;
+      }
+    }
+    return true;
+  };
+
+  // バックトラックで完成盤面を作る
+  const fillGrid = (grid) => {
+    for (let pos = 0; pos < SIZE * SIZE; pos++) {
+      const row = Math.floor(pos / SIZE);
+      const col = pos % SIZE;
+      if (grid[row][col] !== 0) continue;
+      const nums = shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      for (const num of nums) {
+        if (canPlace(grid, row, col, num)) {
+          grid[row][col] = num;
+          if (fillGrid(grid)) return true;
+          grid[row][col] = 0;
+        }
+      }
+      return false;
+    }
+    return true;
+  };
+
+  // 解の個数を数える (2 個見つかった時点で打ち切り)
+  const countSolutions = (grid, limit = 2) => {
+    let count = 0;
+    const solve = () => {
+      for (let pos = 0; pos < SIZE * SIZE; pos++) {
+        const row = Math.floor(pos / SIZE);
+        const col = pos % SIZE;
+        if (grid[row][col] !== 0) continue;
+        for (let num = 1; num <= 9; num++) {
+          if (canPlace(grid, row, col, num)) {
+            grid[row][col] = num;
+            solve();
+            grid[row][col] = 0;
+            if (count >= limit) return;
+          }
+        }
+        return; // このマスに置ける数字がもう無い
+      }
+      count++; // 空きマスが無い = 解が 1 つ完成
+    };
+    solve();
+    return count;
+  };
+
+  const cloneGrid = (grid) => grid.map((row) => row.slice());
+
+  // 完成盤面からマスを抜いてパズルを作る (唯一解を保証)
+  const makePuzzle = (full, holes = 48) => {
+    const p = cloneGrid(full);
+    const positions = shuffle(
+      Array.from({ length: SIZE * SIZE }, (_, i) => i)
+    );
+    let removed = 0;
+    for (const pos of positions) {
+      if (removed >= holes) break;
+      const row = Math.floor(pos / SIZE);
+      const col = pos % SIZE;
+      const backup = p[row][col];
+      if (backup === 0) continue;
+      p[row][col] = 0;
+      if (countSolutions(cloneGrid(p)) !== 1) {
+        p[row][col] = backup; // 唯一解でなくなるなら戻す
+      } else {
+        removed++;
+      }
+    }
+    return p;
+  };
+
+  const generate = () => {
+    const empty = Array.from({ length: SIZE }, () => new Array(SIZE).fill(0));
+    fillGrid(empty);
+    solution = empty;
+    const holes = DIFFICULTY_HOLES[difficultyEl.value] ?? DIFFICULTY_HOLES.normal;
+    puzzle = makePuzzle(solution, holes);
+  };
+
+  /* ---------- メモの誤り判定 ---------- */
+
+  // (row, col) に確定値 n を置けないか？ = 同じ行・列・ブロックに n が確定済み
+  const conflictsWith = (row, col, n) => {
+    for (let i = 0; i < SIZE; i++) {
+      if (i !== col && values[row][i] === n) return true;
+      if (i !== row && values[i][col] === n) return true;
+    }
+    const r0 = row - (row % BOX);
+    const c0 = col - (col % BOX);
+    for (let r = 0; r < BOX; r++) {
+      for (let c = 0; c < BOX; c++) {
+        const rr = r0 + r;
+        const cc = c0 + c;
+        if ((rr !== row || cc !== col) && values[rr][cc] === n) return true;
+      }
+    }
+    return false;
+  };
+
+  /* ---------- 盤面の描画 ---------- */
+
+  // 1 セルの表示（大きい数字・メモ・誤りメモ）を更新
+  const renderCell = (row, col) => {
+    const input = inputs[row][col];
+    const cell = input.parentElement;
+    const val = values[row][col];
+
+    if (!input.readOnly) input.value = val ? String(val) : "";
+    cell.classList.toggle("has-value", val !== 0);
+
+    const noteEl = cell.querySelector(".notes");
+    const set = notes[row][col];
+    for (let n = 1; n <= 9; n++) {
+      const span = noteEl.children[n - 1];
+      if (val === 0 && set.has(n)) {
+        span.textContent = String(n);
+        span.classList.toggle("bad", conflictsWith(row, col, n));
+      } else {
+        span.textContent = "";
+        span.classList.remove("bad");
+      }
+    }
+  };
+
+  const renderAll = () => {
+    for (let row = 0; row < SIZE; row++) {
+      for (let col = 0; col < SIZE; col++) renderCell(row, col);
+    }
+  };
+
+  // 残り数字カウント（1〜9 それぞれ、あと何個置けるか）
+  const updateCounts = () => {
+    const placed = new Array(10).fill(0);
+    for (let row = 0; row < SIZE; row++) {
+      for (let col = 0; col < SIZE; col++) {
+        const v = values[row][col];
+        if (v) placed[v]++;
+      }
+    }
+    countsEl.innerHTML = "";
+    for (let n = 1; n <= 9; n++) {
+      const remaining = Math.max(0, SIZE - placed[n]);
+      const item = document.createElement("div");
+      item.className = "count" + (remaining === 0 ? " done" : "");
+      item.innerHTML = `<span class="n">${n}</span><span class="r">${remaining}</span>`;
+      countsEl.appendChild(item);
+    }
+  };
+
+  // 値が変わったあとにまとめて再計算
+  const updateAll = () => {
+    renderAll();
+    updateCounts();
+  };
+
+  const toggleNote = (row, col, n) => {
+    const set = notes[row][col];
+    if (set.has(n)) set.delete(n);
+    else set.add(n);
+  };
+
+  const buildBoard = () => {
+    boardEl.innerHTML = "";
+    inputs = [];
+    values = [];
+    notes = [];
+    for (let row = 0; row < SIZE; row++) {
+      const rowInputs = [];
+      const rowValues = [];
+      const rowNotes = [];
+      for (let col = 0; col < SIZE; col++) {
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        cell.dataset.row = row;
+        cell.dataset.col = col;
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.inputMode = "numeric";
+        input.maxLength = 1;
+        input.autocomplete = "off";
+        input.setAttribute("aria-label", `${row + 1}行 ${col + 1}列`);
+
+        const fixedVal = puzzle[row][col];
+        const fixed = fixedVal !== 0;
+        if (fixed) {
+          input.value = String(fixedVal);
+          input.readOnly = true;
+          cell.classList.add("fixed");
+        }
+
+        const noteEl = document.createElement("div");
+        noteEl.className = "notes";
+        noteEl.setAttribute("aria-hidden", "true");
+        for (let n = 1; n <= 9; n++) noteEl.appendChild(document.createElement("span"));
+
+        input.addEventListener("input", () => {
+          if (gameOver || solved) {
+            input.value = values[row][col] ? String(values[row][col]) : "";
+            return;
+          }
+          const typed = input.value.replace(/[^1-9]/g, "").slice(-1);
+
+          if (memoMode && !fixed) {
+            // メモモード：打った数字を候補として ON/OFF
+            if (typed) toggleNote(row, col, Number(typed));
+            input.value = values[row][col] ? String(values[row][col]) : "";
+            cell.classList.remove("wrong");
+            clearMessage();
+            updateAll();
+            return;
+          }
+
+          // 通常モード：確定値を入力
+          const before = values[row][col];
+          const newVal = typed ? Number(typed) : 0;
+          values[row][col] = newVal;
+          input.value = typed;
+          if (newVal !== 0) notes[row][col].clear(); // 値を入れたらメモは消す
+
+          cell.classList.remove("wrong");
+          clearMessage();
+
+          if (newVal !== 0 && newVal !== solution[row][col]) {
+            // 正解と異なる数字 → その場でエラー表示
+            cell.classList.add("wrong");
+            if (newVal !== before) registerMistake(); // 上限到達時は endGame がメッセージ表示
+          }
+
+          updateAll();
+          maybeAutoComplete(); // 全マス埋まって全問正解なら自動でクリア確定
+        });
+
+        input.addEventListener("focus", () => input.select());
+
+        input.addEventListener("keydown", (e) => {
+          handleNav(e, row, col);
+          if (fixed || gameOver || solved) return;
+          if (e.key === "Backspace" || e.key === "Delete") {
+            e.preventDefault();
+            if (values[row][col] !== 0) {
+              values[row][col] = 0;
+            } else {
+              notes[row][col].clear();
+            }
+            cell.classList.remove("wrong");
+            clearMessage();
+            updateAll();
+          }
+        });
+
+        cell.appendChild(input);
+        cell.appendChild(noteEl);
+        boardEl.appendChild(cell);
+
+        rowInputs.push(input);
+        rowValues.push(fixedVal);
+        rowNotes.push(new Set());
+      }
+      inputs.push(rowInputs);
+      values.push(rowValues);
+      notes.push(rowNotes);
+    }
+    updateAll();
+  };
+
+  // 矢印キーでの移動
+  const handleNav = (e, row, col) => {
+    const moves = {
+      ArrowUp: [row - 1, col],
+      ArrowDown: [row + 1, col],
+      ArrowLeft: [row, col - 1],
+      ArrowRight: [row, col + 1],
+    };
+    if (!(e.key in moves)) return;
+    const [r, c] = moves[e.key];
+    if (r >= 0 && r < SIZE && c >= 0 && c < SIZE) {
+      e.preventDefault();
+      inputs[r][c].focus();
+    }
+  };
+
+  /* ---------- 操作 ---------- */
+
+  const clearMessage = () => {
+    messageEl.textContent = "";
+    messageEl.className = "message";
+  };
+
+  const showMessage = (text, type) => {
+    messageEl.textContent = text;
+    messageEl.className = "message " + type;
+  };
+
+  /* ---------- 誤入力チェック / ミス制限 ---------- */
+
+  const updateMistakes = () => {
+    mistakesEl.textContent = `ミス ${mistakes}/${MAX_MISTAKES}`;
+    mistakesEl.classList.toggle("warn", mistakes > 0 && !gameOver);
+    mistakesEl.classList.toggle("over", gameOver);
+  };
+
+  // 正解の盤面を全マスに表示する（ゲーム失敗時）
+  const revealSolution = () => {
+    for (let row = 0; row < SIZE; row++) {
+      for (let col = 0; col < SIZE; col++) {
+        const input = inputs[row][col];
+        input.parentElement.classList.remove("wrong");
+        values[row][col] = solution[row][col];
+        if (!input.readOnly) input.parentElement.classList.add("revealed");
+      }
+    }
+    updateAll();
+  };
+
+  // ゲーム失敗（ミス上限 / 未入力での答え合わせ）。見た目・処理はゲームオーバーで統一
+  const endGame = (message, { reveal = false } = {}) => {
+    gameOver = true;
+    stopTimer();
+    boardEl.classList.add("over");
+    updateMistakes();
+    if (reveal) revealSolution();
+    showMessage(message, "err");
+  };
+
+  const registerMistake = () => {
+    if (gameOver) return;
+    mistakes++;
+    updateMistakes();
+    if (mistakes >= MAX_MISTAKES) {
+      endGame(`ゲームオーバー：ミスが ${MAX_MISTAKES} 回に達しました。「リセット」か「新しいパズル」でやり直せます。`);
+    }
+  };
+
+  /* ---------- 自動クリア判定 ---------- */
+
+  const isFull = () => values.every((row) => row.every((v) => v !== 0));
+  const isAllCorrect = () =>
+    values.every((row, r) => row.every((v, c) => v === solution[r][c]));
+
+  // クリア確定時の共通処理（タイマー停止・記録・表示）
+  const finishWin = () => {
+    if (solved) return;
+    solved = true;
+    stopTimer();
+    elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+    renderTimer();
+    recordTime(elapsedSec);
+    boardEl.classList.add("solved");
+    showMessage(`正解です！おめでとうございます 🎉　クリアタイム: ${elapsedSec} 秒`, "ok");
+  };
+
+  // 全マス入力済みなら自動で正誤判定（誤りが残る場合は赤表示のまま継続）
+  const maybeAutoComplete = () => {
+    if (gameOver || solved) return;
+    if (isFull() && isAllCorrect()) finishWin();
+  };
+
+  const check = () => {
+    if (gameOver || solved) return;
+
+    // 未入力のマスがあれば「ゲーム失敗」として扱い、正解の盤面を表示
+    if (!isFull()) {
+      endGame("未入力のマスがあるため、ゲーム失敗です。正解の盤面を表示します。「リセット」か「新しいパズル」でやり直せます。", { reveal: true });
+      return;
+    }
+
+    // 全マス入力済み → 正誤判定
+    let correct = true;
+    for (let row = 0; row < SIZE; row++) {
+      for (let col = 0; col < SIZE; col++) {
+        const input = inputs[row][col];
+        if (input.readOnly) continue;
+        input.parentElement.classList.remove("wrong");
+        if (values[row][col] !== solution[row][col]) {
+          correct = false;
+          input.parentElement.classList.add("wrong");
+        }
+      }
+    }
+
+    if (correct) {
+      finishWin();
+    } else {
+      showMessage("間違っているマスがあります（赤色）。もう一度見直しましょう。", "err");
+    }
+  };
+
+  const reset = () => {
+    for (let row = 0; row < SIZE; row++) {
+      for (let col = 0; col < SIZE; col++) {
+        const input = inputs[row][col];
+        input.parentElement.classList.remove("wrong", "revealed");
+        if (!input.readOnly) {
+          values[row][col] = 0;
+          notes[row][col].clear();
+        }
+      }
+    }
+    const wasStopped = gameOver || solved;
+    mistakes = 0;
+    gameOver = false;
+    solved = false;
+    boardEl.classList.remove("over", "solved");
+    updateMistakes();
+    clearMessage();
+    updateAll();
+    if (wasStopped) startTimer(); // 停止していたタイマーを再開
+  };
+
+  const setMemoMode = (on) => {
+    memoMode = on;
+    memoBtn.setAttribute("aria-pressed", String(on));
+    memoBtn.textContent = on ? "メモ: ON" : "メモ: OFF";
+    modeEl.textContent = on ? "入力モード: メモ" : "入力モード: 通常";
+    modeEl.classList.toggle("memo", on);
+    boardEl.classList.toggle("memo", on);
+  };
+
+  const newGame = () => {
+    generate();
+    buildBoard();
+    clearMessage();
+    mistakes = 0;
+    gameOver = false;
+    solved = false;
+    boardEl.classList.remove("over", "solved");
+    updateMistakes();
+    newRecord = null;
+    renderRankings();
+    startTimer();
+  };
+
+  document.getElementById("check").addEventListener("click", check);
+  document.getElementById("reset").addEventListener("click", reset);
+  document.getElementById("new").addEventListener("click", newGame);
+  memoBtn.addEventListener("click", () => setMemoMode(!memoMode));
+  rankClearBtn.addEventListener("click", clearRankings);
+  difficultyEl.addEventListener("change", newGame);
+
+  // スペースキーで通常入力 / メモ入力を切り替え
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== " " && e.code !== "Space") return;
+    const tag = e.target.tagName;
+    if (tag === "BUTTON" || tag === "SELECT") return; // ボタン操作等は妨げない
+    e.preventDefault();
+    setMemoMode(!memoMode);
+  });
+
+  /* ---------- 初期化 ---------- */
+  newGame();
+})();
+</script>
+</body>
+</html>
